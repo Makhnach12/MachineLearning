@@ -1,3 +1,7 @@
 WorkCourse/ch01_20200703110241
 WorkCourse/ch01_20200703110241.mp4
 WorkCourse/result_annotations_ch01_20200703110241.csv
+WorkCourse/GoodPredicts
+WorkCourse/BadPredicts
+.idea/
+WorkCourse/__pycache__/
