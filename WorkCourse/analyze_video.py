@@ -1,105 +1,100 @@
-from moviepy.editor import VideoFileClip
 import pandas as pd
-import numpy as np
 import os
-from datetime import timedelta
-from PIL import Image
+import cv2 as cv
 from typing import Optional
+from WorkCourse.IOU import calculateIOU
 
-from WorkCourse.IOU import calculate_iou
-
-
-def format_timedelta(td: timedelta) -> str:
-    """Функция для редактирования названий кадров"""
-    result: str = str(td)
-    try:
-        result, ms = result.split(".")
-    except ValueError:
-        return result + " 00".replace(":", "-")
-    ms = round(int(ms) / 10000)
-    return f"{result}. {ms: 02}".replace(":", "-")
+# from WorkCourse.detector import DetectorSSD
+# переменная для оценивания совпадения bbox по iou
+bboxIdentity: float = 0.7
 
 
-def cutBbox(video_file, datatable_file) -> None:
-    """Функция вырезает bbox из видео по заданной таблице datatable"""
+def cutBboxFromVideo(video_file, datatable_file) -> None:
+    """Функция вырезает bbox и сохраняет в папку"""
     data = pd.read_csv(datatable_file)
-    video_clip: VideoFileClip = VideoFileClip(video_file)
-    filename, _ = os.path.splitext(video_file)
-    if not os.path.isdir(filename):
-        os.mkdir(filename)
-    step: float = 1 / video_clip.fps
-    for i, current_frame in enumerate(data['frame']):
-        frame_duration_formatted: str = format_timedelta(
-            timedelta(seconds=current_frame * step)).replace("", "-")
-        frame_filename: str = os.path.join(filename,
-                                           f"frame {frame_duration_formatted}.jpg")
-        video_clip.save_frame(frame_filename, current_frame * step)
-        img: Image = Image.open(frame_filename)
-        img_crop: Image = img.crop((data['x'][i], data['y'][i],
-                                    data['x'][i] + data['w'][i],
-                                    data['y'][i] + data['h'][i]))
-        img_crop.save(frame_filename, quality=100)
+    cap = cv.VideoCapture(video_file)
 
+    fileName: str = 'Results'
+    if not os.path.isdir(fileName):
+        os.mkdir(fileName)
 
-def saveBbox(video_clip: VideoFileClip, bbox: list[int], filename: str,
-             timeClip: float) -> None:
-    """Функция сохраняет bbox из видео в нужную папку"""
-    frame_duration_formatted: str = format_timedelta(
-        timedelta(seconds=timeClip)).replace("", "-")
-    frame_filename: str = os.path.join(filename,
-                                       f"frame {frame_duration_formatted}.jpg")
-    video_clip.save_frame(frame_filename, timeClip)
-    img: Image = Image.open(frame_filename)
-    img_crop: Image = img.crop(tuple(bbox))
-    img_crop.save(frame_filename, quality=100)
+    idx: int = 0
+    frameNumber: int = 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        frameNumber += 1
+        if frameNumber != data['frame'][idx]:
+            continue
+        # TODO: спросить про отрицательные координаты
+        elif data['x'][idx] < 0 or data['y'][idx] < 0:
+            idx += 1
+            continue
+        bbox: list[int] = [data['x'][idx], data['y'][idx],
+                           data['w'][idx], data['h'][idx]]
+        if ret:
+            saveBbox(frame, fileName, bbox, frameNumber)
+        idx += 1
+    cap.release()
+    cv.destroyAllWindows()
 
 
 def data2BboxList(data) -> list[list[int]]:
     """Функция для перевода данных таблицы в лист с координатами bbox"""
-    all_Bboxes: list[list[int]] = list()
+    allBboxes: list[list[int]] = list()
     for i in range(len(data)):
         bbox: list[int] = [data['x'].iloc[i], data['y'].iloc[i],
-                           data['x'].iloc[i] + data['w'].iloc[i],
-                           data['y'].iloc[i] + data['h'].iloc[i]]
-        all_Bboxes.append(bbox)
-    return all_Bboxes
+                           data['w'].iloc[i], data['h'].iloc[i]]
+        allBboxes.append(bbox)
+    return allBboxes
 
 
 def bboxPredictAnalyze(bboxPredict: list[int], bboxesReal: list[list[int]]) \
         -> Optional[list[int]]:
     """Функция сравнивает по IOU bbox который вернул детектор с каждым
-    bbox из разметки кадра и возвращает True если нашла два похожих"""
+    bbox из разметки кадра и возвращает Bbox если нашла два похожих"""
     for bboxReal in bboxesReal:
         # TODO: подумать насколько должны совпадать bbox
-        if calculate_iou(bboxPredict, bboxReal) >= 0.7:
+        if calculateIOU(bboxPredict, bboxReal) >= bboxIdentity:
             return bboxReal
     return None
 
 
-def videoAnalyze(video_file, datatable_file) -> None:
-    """Функция сохраняет bbox в зависимости от результатов сравнения"""
-    data = pd.read_csv(datatable_file)
-    video_clip: VideoFileClip = VideoFileClip(video_file)
+def saveBbox(frame, filename, bbox, frameNumber):
+    """Функция сохраняет bbox в папке с именем filename"""
+    cropped = frame[bbox[1]:bbox[1] + bbox[3],
+              bbox[0]:bbox[0] + bbox[2]]
+    frameFilename: str = os.path.join(filename, f"frame{frameNumber}.jpg")
+    cv.imwrite(frameFilename, cropped)
+
+
+def videoAnalyze(videoFile, datatableFile) -> None:
+    """Функция сохраняет bbox в какой-либо из папок BadPredicts |
+    GoodPredicts в зависимости от результатов сравнения итоговых данных с
+    данными детектора"""
+    cap = cv.VideoCapture(videoFile)
+    data = pd.read_csv(datatableFile)
+    # detector = DetectorSSD(0.5, 0.7)
     GoodPredictsFileName: str = 'GoodPredicts'
     BadPredictsFileName: str = 'BadPredicts'
     if not os.path.isdir(GoodPredictsFileName):
         os.mkdir(GoodPredictsFileName)
     if not os.path.isdir(BadPredictsFileName):
         os.mkdir(BadPredictsFileName)
-    step: float = 1 / video_clip.fps
-    for currDuration in np.arange(0, video_clip.duration, step):
-        if int(currDuration * video_clip.fps) in list(data['frame']):
-            dataFrame = data[data['frame'] == int(currDuration *
-                                                  video_clip.fps)]
-            bboxList: list[list[int]] = data2BboxList(dataFrame)
-            copiedList = bboxList[0].copy()
-            for i in range(len(bboxList)):
-                copiedList[i] += 10
-            bbox: Optional[list[int]] = bboxPredictAnalyze(copiedList, bboxList)
-            # TODO: вместо copiedList должен быть predict детектора
-            if bbox:
-                saveBbox(video_clip, bbox, GoodPredictsFileName,
-                         currDuration)
+    frameNumber: int = 1
+    while cap.isOpened():
+        ret, frame = cap.read()
+        # _, bboxList = detector.get_bboxes(frame)
+        dataFrame = data[data['frame'] == frameNumber]
+        trueBboxList: list[list[int]] = data2BboxList(dataFrame)
+        # TODO: заменить на bboxlist
+        copiedList: list[list[int]] = [[1844, 625, 47, 33]]
+        for bbox in copiedList:
+            bboxAns: Optional[list[int]] = bboxPredictAnalyze(bbox,
+                                                              trueBboxList)
+            if bboxAns:
+                saveBbox(frame, GoodPredictsFileName, bboxAns, frameNumber)
             else:
-                saveBbox(video_clip, copiedList, BadPredictsFileName,
-                         currDuration)
+                saveBbox(frame, BadPredictsFileName, bbox, frameNumber)
+        frameNumber += 1
+    cap.release()
+    cv.destroyAllWindows()

@@ -1,21 +1,31 @@
-def calculate_iou(bboxPredict, bboxesTrue) -> float:
-    """Функция вычисляющая IOU"""
-    intersection_width: int = min(bboxPredict[2], bboxesTrue[2]) - max(
-        bboxPredict[0], bboxesTrue[0])
-    intersection_height: int = min(bboxPredict[3], bboxesTrue[3]) - max(
-        bboxPredict[1], bboxesTrue[1])
+def reformBbox(bbox: list[int]) -> list[int]:
+    """Функция переводит bbox из формата x,y,w,h в x,y,x+w,y+h"""
+    bboxCopy = bbox.copy()
+    bboxCopy[2] = bboxCopy[2] + bboxCopy[0]
+    bboxCopy[3] = bboxCopy[3] + bboxCopy[1]
+    return bboxCopy
 
-    if intersection_width <= 0 or intersection_height <= 0:
+
+def calculateIOU(bboxPredict, bboxTrue) -> float:
+    """Функция вычисляющая IOU"""
+    bboxPredictCopy = reformBbox(bboxPredict)
+    bboxTrueCopy = reformBbox(bboxTrue)
+
+    intersectionWidth: int = min(bboxPredictCopy[2], bboxTrueCopy[2]) - max(
+        bboxPredictCopy[0], bboxTrueCopy[0])
+    intersectionHeight: int = min(bboxPredictCopy[3], bboxTrueCopy[3]) - max(
+        bboxPredictCopy[1], bboxTrueCopy[1])
+
+    if intersectionWidth <= 0 or intersectionHeight <= 0:
         return 0
 
-    intersection_area: int = intersection_width * intersection_height
+    intersectionArea: int = intersectionWidth * intersectionHeight
 
-    box_pred_area: int = (bboxPredict[2] - bboxPredict[0]) * (bboxPredict[3] -
-                                                              bboxPredict[1])
-    box_true_area: int = (bboxesTrue[2] - bboxesTrue[0]) * (bboxesTrue[3] -
-                                                            bboxesTrue[1])
-    union_area: int = box_pred_area + box_true_area - intersection_area
+    boxPredArea: int = (bboxPredictCopy[2] - bboxPredictCopy[0]) * (
+                bboxPredictCopy[3] - bboxPredictCopy[1])
+    boxTrueArea: int = (bboxTrueCopy[2] - bboxTrueCopy[0]) * (bboxTrueCopy[3] -
+                                                              bboxTrueCopy[1])
+    unionArea: int = boxPredArea + boxTrueArea - intersectionArea
 
-    # Calculate IoU
-    iou: float = intersection_area / union_area
+    iou: float = intersectionArea / unionArea
     return iou
