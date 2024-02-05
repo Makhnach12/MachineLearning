@@ -1,6 +1,6 @@
-def reformBbox(bbox: list[int]) -> list[int]:
+def reformBbox(bbox: tuple) -> list:
     """Функция переводит bbox из формата x,y,w,h в x,y,x+w,y+h"""
-    bboxCopy = bbox.copy()
+    bboxCopy = [bbox[0], bbox[1], bbox[2], bbox[3]]
     bboxCopy[2] = bboxCopy[2] + bboxCopy[0]
     bboxCopy[3] = bboxCopy[3] + bboxCopy[1]
     return bboxCopy

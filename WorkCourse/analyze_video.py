@@ -1,12 +1,17 @@
 import pandas as pd
 import os
 import cv2 as cv
-from typing import Optional
-from WorkCourse.IOU import calculateIOU
+from IOU import calculateIOU
 
-# from WorkCourse.detector import DetectorSSD
+# from detector import DetectorSSD
+
 # переменная для оценивания совпадения bbox по iou
 bboxIdentity: float = 0.7
+
+
+def makeBboxInt(bbox: tuple):
+    """Функция округляет значения bbox"""
+    return [int(elem) for elem in bbox]
 
 
 def cutBboxFromVideo(video_file, datatable_file) -> None:
@@ -29,8 +34,8 @@ def cutBboxFromVideo(video_file, datatable_file) -> None:
         elif data['x'][idx] < 0 or data['y'][idx] < 0:
             idx += 1
             continue
-        bbox: list[int] = [data['x'][idx], data['y'][idx],
-                           data['w'][idx], data['h'][idx]]
+        bbox: list = [data['x'][idx], data['y'][idx],
+                      data['w'][idx], data['h'][idx]]
         if ret:
             saveBbox(frame, fileName, bbox, frameNumber)
         idx += 1
@@ -38,18 +43,17 @@ def cutBboxFromVideo(video_file, datatable_file) -> None:
     cv.destroyAllWindows()
 
 
-def data2BboxList(data) -> list[list[int]]:
+def data2BboxList(data) -> list:
     """Функция для перевода данных таблицы в лист с координатами bbox"""
-    allBboxes: list[list[int]] = list()
+    allBboxes: list = list()
     for i in range(len(data)):
-        bbox: list[int] = [data['x'].iloc[i], data['y'].iloc[i],
-                           data['w'].iloc[i], data['h'].iloc[i]]
+        bbox: list = [data['x'].iloc[i], data['y'].iloc[i],
+                      data['w'].iloc[i], data['h'].iloc[i]]
         allBboxes.append(bbox)
     return allBboxes
 
 
-def bboxPredictAnalyze(bboxPredict: list[int], bboxesReal: list[list[int]]) \
-        -> Optional[list[int]]:
+def bboxPredictAnalyze(bboxPredict: list, bboxesReal: list):
     """Функция сравнивает по IOU bbox который вернул детектор с каждым
     bbox из разметки кадра и возвращает Bbox если нашла два похожих"""
     for bboxReal in bboxesReal:
@@ -67,6 +71,15 @@ def saveBbox(frame, filename, bbox, frameNumber):
     cv.imwrite(frameFilename, cropped)
 
 
+def saveFrame(frame, filename, bbox, frameNumber):
+    """Функция сохраняет bbox в папке с именем filename"""
+    frameFilename: str = os.path.join(filename, f"frame{frameNumber}_full.jpg")
+    cv.rectangle(frame, (bbox[0], bbox[1]),
+                 (bbox[0] + bbox[2], bbox[1] + bbox[3]),
+                 color=(0, 255, 0), thickness=3)
+    cv.imwrite(frameFilename, frame)
+
+
 def videoAnalyze(videoFile, datatableFile) -> None:
     """Функция сохраняет bbox в какой-либо из папок BadPredicts |
     GoodPredicts в зависимости от результатов сравнения итоговых данных с
@@ -82,19 +95,61 @@ def videoAnalyze(videoFile, datatableFile) -> None:
         os.mkdir(BadPredictsFileName)
     frameNumber: int = 1
     while cap.isOpened():
+
         ret, frame = cap.read()
         # _, bboxList = detector.get_bboxes(frame)
         dataFrame = data[data['frame'] == frameNumber]
-        trueBboxList: list[list[int]] = data2BboxList(dataFrame)
-        # TODO: заменить на bboxlist
-        copiedList: list[list[int]] = [[1844, 625, 47, 33]]
-        for bbox in copiedList:
-            bboxAns: Optional[list[int]] = bboxPredictAnalyze(bbox,
-                                                              trueBboxList)
+
+        trueBboxList = data2BboxList(dataFrame)
+        # TODO: заменить на bboxList
+        # copiedList: list[list[int]] = [[1844, 625, 47, 33]]
+        bboxList = [[1844, 625, 47, 33]]
+        # for bbox in copiedList:
+
+        for bbox in bboxList:
+            bboxAns = bboxPredictAnalyze(bbox, trueBboxList)
             if bboxAns:
                 saveBbox(frame, GoodPredictsFileName, bboxAns, frameNumber)
+                print("Good:", bboxAns, trueBboxList, bboxList)
             else:
                 saveBbox(frame, BadPredictsFileName, bbox, frameNumber)
+                print("Bad:", bbox, trueBboxList, bboxList)
         frameNumber += 1
     cap.release()
     cv.destroyAllWindows()
+
+
+def videoCheck(videoFile, datatableFile) -> None:
+    cap = cv.VideoCapture(videoFile)
+    data = pd.read_csv(datatableFile)
+    bboxFileName: str = 'Bbox'
+    frameFileName: str = 'Frames'
+    if not os.path.isdir(bboxFileName):
+        os.mkdir(bboxFileName)
+    if not os.path.isdir(frameFileName):
+        os.mkdir(frameFileName)
+    frameNumber: int = 1
+    while cap.isOpened():
+        ret, frame = cap.read()
+        dataFrame = data[data['frame'] == frameNumber]
+        trueBboxList = data2BboxList(dataFrame)
+        for bbox in trueBboxList:
+            print('yes')
+            print(bbox)
+            saveBbox(frame, bboxFileName, makeBboxInt(bbox), frameNumber)
+            saveFrame(frame, frameFileName, makeBboxInt(bbox), frameNumber)
+        frameNumber += 1
+    cap.release()
+    cv.destroyAllWindows()
+
+def checkData(datatableFile1, datatableFile2):
+    data1 = pd.read_csv(datatableFile1)
+    data2 = pd.read_csv(datatableFile2)
+    for i in range(1, 10000):
+        dataFrame1 = data1[data1['frame'] == i]
+        dataFrame2 = data2[data2['frame'] == i]
+        trueBboxList1 = data2BboxList(dataFrame1)
+        trueBboxList2 = data2BboxList(dataFrame2)
+        if trueBboxList1 != trueBboxList2:
+            print(trueBboxList1, trueBboxList2)
+            print('NO')
